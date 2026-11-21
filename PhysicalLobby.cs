@@ -1,9 +1,13 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Reflection.Emit;
 using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
+using UnityEngine;
 
 namespace PhysicalLobby;
 
@@ -13,17 +17,80 @@ public class PhysicalLobby : BaseUnityPlugin {
     internal new static ManualLogSource Logger => Instance._logger;
     private ManualLogSource _logger => base.Logger;
     internal Harmony? Harmony { get; set; }
+
+    
+    // TODO settings
+    public const string AssetBundleName = "Physical Lobby";
+
+    public AssetBundle? loadedBundle;
+    public Level? levelFile;
+    
     
     private void Awake() { // set stuff up
+        Stopwatch watch = new();
+        watch.Start();
         Instance = this;
         Harmony ??= new Harmony($"at.kibbyc.{MyPluginInfo.PLUGIN_GUID}");
+        
+        // do preparations
+        try {
+            LoadAssetBundle(Path.Join(Path.GetDirectoryName(Info.Location), AssetBundleName)); // takes most time
+            LoadAssetsFromBundle();
+        }
+        catch (Exception e) {
+            Logger.LogError(e.Message);
+            Logger.LogError(e);
+            return;
+        }
+
+        // apply patches
         Harmony.PatchAll(typeof(PhysicalLobby));
-        Logger.LogInfo($"{Info.Metadata.GUID} v{Info.Metadata.Version} has loaded!");
+        
+        Logger.LogInfo($"{Info.Metadata.GUID} v{Info.Metadata.Version} has loaded in {watch.ElapsedMilliseconds}ms!");
+    }
+    
+    private void LoadAssetBundle(string bundlePath) {
+        Logger.LogInfo($"Loading AssetBundle from {bundlePath}..");
+        Stopwatch watch = new();
+        watch.Start();
+        if (!File.Exists(bundlePath))
+            throw new FileNotFoundException("AssetBundle not found! please reinstall the mod.");
+        loadedBundle = AssetBundle.LoadFromFile(bundlePath);
+        if (!loadedBundle)
+            throw new InvalidOperationException("AssetBundle loading failed!");
+        
+        Logger.LogInfo($"AssetBundle loaded in {watch.ElapsedMilliseconds}ms!");
+
+        string[] names = loadedBundle.GetAllAssetNames();
+        Logger.LogInfo($"found {names.Length} assets");
+        foreach (var namee in names) Logger.LogInfo(namee);
     }
 
+    private void LoadAssetsFromBundle() {
+        if (!loadedBundle)
+            throw new InvalidOperationException("AssetBundle not loaded");
+        Logger.LogInfo("Loading assets");
+        
+        levelFile = loadedBundle.LoadAsset<Level>("lobby");
+        
+        PrefabRef prefab = new();
+        prefab.bundle = loadedBundle;
+        prefab.resourcePath = "lobby";
+        
+        levelFile.StartRooms.Clear();
+        levelFile.StartRooms.Add(prefab);
+        Logger.LogInfo("Loaded assets");
+    }
+
+    [HarmonyPatch(typeof(RunManager), nameof(RunManager.Awake)), HarmonyPostfix]
+    public static void ReplaceMain(RunManager __instance) => __instance.levelLobbyMenu = Instance.levelFile;
+    
+    
+    // close the menu page as soon as it comes up and restore player inputs
     [HarmonyPatch(typeof(MenuPageLobby), nameof(MenuPageLobby.Start)), HarmonyPostfix]
     public static void UnmenuThePageOnLobbyMenu() => MenuManager.instance.PageClose(MenuPageIndex.Lobby);
 
+    // unmarks lobbymenu as a menulevel in the function
     [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.MenuLevel)), HarmonyPrefix]
     public static bool MakeLobbyMenuNotMenuLevel(ref bool __result) {
         if (!SemiFunc.RunIsLobbyMenu()) return true;
@@ -34,7 +101,7 @@ public class PhysicalLobby : BaseUnityPlugin {
     private static readonly MethodInfo LobbyMenuInfo = AccessTools.Method(typeof(SemiFunc), nameof(SemiFunc.RunIsLobbyMenu));
     private static readonly MethodInfo MenuLevelInfo = SymbolExtensions.GetMethodInfo(() => SemiFunc.MenuLevel());
     
-    // Fix misuses of "IsRunLobbyLevel"
+    // Fix misuses of "IsRunLobbyLevel" via a transpiler
     [HarmonyTranspiler]
     // for necessity of functioning tumbling // this also apparently stops you from dying when you fall out of the map
     [HarmonyPatch(typeof(PlayerTumble), nameof(PlayerTumble.Update))]

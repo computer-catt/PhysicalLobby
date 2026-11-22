@@ -79,8 +79,8 @@ MonoBehaviour:
   FogColor: {r: 0.85882354, g: 0.85882354, b: 0.85882354, a: 1}
   FogStartDistance: 20
   FogEndDistance: 300
-  AmbientColor: {r: 0.2627451, g: 0.2627451, b: 0.2627451, a: 1}
-  AmbientColorAdaptation: {r: 0.2627451, g: 0.2627451, b: 0.2627451, a: 0}
+  AmbientColor: {r: 0.58, g: 0.58, b: 0.4848437, a: 1}
+  AmbientColorAdaptation: {r: 0.5019608, g: 0.5019608, b: 0.41960785, a: 0}
   ColorTemperature: 7.09
   ColorFilter: {r: 0.65882355, g: 0.65882355, b: 0.65882355, a: 1}
   BloomIntensity: 2
